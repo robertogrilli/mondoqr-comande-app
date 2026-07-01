@@ -229,6 +229,14 @@ class MainActivity : Activity() {
             packageManager.getPackageInfo(packageName, 0).versionName ?: ""
         } catch (e: Exception) { "" }
 
+        /** Apre le impostazioni Bluetooth di Android (per accoppiare la termica in un tap). */
+        @JavascriptInterface
+        fun openBluetoothSettings() {
+            runOnUiThread {
+                try { startActivity(Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS)) } catch (_: Exception) { }
+            }
+        }
+
         @JavascriptInterface
         fun available(): Boolean = true
     }
