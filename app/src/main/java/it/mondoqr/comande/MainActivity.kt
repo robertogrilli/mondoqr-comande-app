@@ -87,6 +87,15 @@ class MainActivity : Activity() {
             registerReceiver(usbReceiver, IntentFilter(actionUsbPermission))
         }
 
+        // Servizio in primo piano: tiene viva la stampa con app in background / schermo spento.
+        val svc = Intent(this, PrintKeepAliveService::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(svc) else startService(svc)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 2001)
+        }
+
         web = WebView(this)
         web.settings.apply {
             javaScriptEnabled = true
