@@ -201,13 +201,23 @@ class MainActivity : Activity() {
             }
         }
 
-        /** TEST senza stampante: rende la comanda come immagine e la salva in Galleria. */
+        /** TEST senza stampante: rende la comanda (stesso markup della stampa) come immagine, la salva in Galleria e la apre. */
         @JavascriptInterface
-        fun saveTestToGallery(text: String) {
+        fun saveTestToGallery(markup: String) {
             Thread {
                 try {
-                    saveBitmapToGallery(renderTextBitmap(text))
-                    runOnUiThread { toast("Comanda di prova salvata in Galleria") }
+                    val uri = saveBitmapToGallery(renderMarkupBitmap(markup))
+                    runOnUiThread {
+                        toast("Comanda di prova salvata in Galleria")
+                        if (uri != null) {
+                            try {
+                                startActivity(Intent(Intent.ACTION_VIEW).apply {
+                                    setDataAndType(uri, "image/*")
+                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                })
+                            } catch (_: Exception) { }
+                        }
+                    }
                 } catch (e: Exception) {
                     runOnUiThread { toast("Salvataggio fallito: ${e.message}") }
                 }
@@ -223,31 +233,65 @@ class MainActivity : Activity() {
         fun available(): Boolean = true
     }
 
-    // ── Rendering comanda -> bitmap (per il test in Galleria) ──
-    private fun renderTextBitmap(text: String): Bitmap {
-        val width = 576 // 80mm @ 203dpi
-        val paint = Paint().apply {
-            color = Color.BLACK
-            textSize = 26f
-            typeface = Typeface.MONOSPACE
-            isAntiAlias = true
+    // ── Rendering markup DantSu -> bitmap (anteprima fedele: allineamento, grassetto, dimensione, colonna prezzi) ──
+    private data class MLine(val left: String, val right: String, val align: Char, val scale: Float, val bold: Boolean)
+
+    private fun parseMarkup(markup: String): List<MLine> {
+        val alignRe = Regex("^\\[(L|C|R)\\]")
+        val tagRe = Regex("<[^>]*>")
+        val colRe = Regex("\\[(L|C|R)\\]")
+        return markup.split("\n").map { raw ->
+            var s = raw
+            var align = 'L'
+            alignRe.find(s)?.let { align = it.groupValues[1][0]; s = s.substring(it.value.length) }
+            val scale = when {
+                s.contains("size='big-2'") -> 2.6f
+                s.contains("size='big'") -> 1.9f
+                else -> 1f
+            }
+            val bold = s.contains("<b>")
+            var left = s
+            var right = ""
+            val ri = s.indexOf("[R]")
+            if (ri >= 0) { left = s.substring(0, ri); right = s.substring(ri + 3) }
+            fun strip(t: String) = t.replace(tagRe, "").replace(colRe, "").trim()
+            MLine(strip(left), strip(right), align, scale, bold)
         }
-        val lines = text.split("\n")
-        val lineHeight = paint.textSize * 1.35f
+    }
+
+    private fun renderMarkupBitmap(markup: String): Bitmap {
+        val width = 576 // 80mm @ 203dpi
+        val base = 26f
         val pad = 20f
-        val height = (pad * 2 + lineHeight * lines.size).toInt().coerceAtLeast(120)
-        val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val lines = parseMarkup(markup)
+        val paint = Paint().apply { color = Color.BLACK; typeface = Typeface.MONOSPACE; isAntiAlias = true }
+        var h = pad * 2
+        for (ln in lines) h += base * ln.scale * 1.35f
+        val bmp = Bitmap.createBitmap(width, h.toInt().coerceAtLeast(120), Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bmp)
         canvas.drawColor(Color.WHITE)
-        var y = pad + paint.textSize
-        for (line in lines) {
-            canvas.drawText(line, pad, y, paint)
-            y += lineHeight
+        var y = pad
+        for (ln in lines) {
+            paint.textSize = base * ln.scale
+            paint.typeface = if (ln.bold) Typeface.create(Typeface.MONOSPACE, Typeface.BOLD) else Typeface.MONOSPACE
+            y += paint.textSize
+            val tw = paint.measureText(ln.left)
+            val x = when (ln.align) {
+                'C' -> (width - tw) / 2f
+                'R' -> width - pad - tw
+                else -> pad
+            }
+            canvas.drawText(ln.left, x, y, paint)
+            if (ln.right.isNotEmpty()) {
+                val rw = paint.measureText(ln.right)
+                canvas.drawText(ln.right, width - pad - rw, y, paint)
+            }
+            y += paint.textSize * 0.35f
         }
         return bmp
     }
 
-    private fun saveBitmapToGallery(bmp: Bitmap) {
+    private fun saveBitmapToGallery(bmp: Bitmap): Uri? {
         val name = "comanda_prova_" + System.currentTimeMillis() + ".png"
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val values = ContentValues().apply {
@@ -258,11 +302,13 @@ class MainActivity : Activity() {
             val uri = contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
                 ?: throw RuntimeException("MediaStore null")
             contentResolver.openOutputStream(uri)?.use { os -> bmp.compress(Bitmap.CompressFormat.PNG, 100, os) }
+            return uri
         } else {
             @Suppress("DEPRECATION")
             val dir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), "ComandeMondoQR")
             dir.mkdirs()
             FileOutputStream(File(dir, name)).use { os -> bmp.compress(Bitmap.CompressFormat.PNG, 100, os) }
+            return null
         }
     }
 }
