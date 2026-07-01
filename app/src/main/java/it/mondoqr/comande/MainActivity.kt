@@ -2,7 +2,16 @@ package it.mondoqr.comande
 
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.content.ContentValues
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.Typeface
+import android.os.Build
 import android.os.Bundle
+import android.os.Environment
+import android.provider.MediaStore
 import android.view.WindowManager
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
@@ -12,18 +21,20 @@ import android.webkit.WebViewClient
 import android.widget.Toast
 import com.dantsu.escposprinter.EscPosPrinter
 import com.dantsu.escposprinter.connection.tcp.TcpConnection
+import java.io.File
+import java.io.FileOutputStream
 
 /**
  * App "Comande MondoQR".
- * - Mostra l'admin MondoQR a schermo intero (WebView), schermo sempre acceso.
- * - Espone un ponte JS→nativo: il web chiama window.AndroidPrint.printTcp(markup, ip, porta, larghezza)
- *   e la comanda esce DIRETTA sulla termica di rete (ESC/POS via DantSu) — niente Chrome, niente dialog, niente tap.
+ * - WebView a schermo intero dell'admin MondoQR (schermo sempre acceso).
+ * - Ponte JS->nativo:
+ *     window.AndroidPrint.printTcp(markup, ip, porta, larghezza)  -> stampa ESC/POS diretta (zero tap)
+ *     window.AndroidPrint.saveTestToGallery(testo)                -> salva la comanda di prova in Galleria (test senza stampante)
+ *     window.AndroidPrint.appVersion()                            -> versione app (per il bottone "aggiorna")
  */
 class MainActivity : Activity() {
 
     private lateinit var web: WebView
-
-    // Admin del chalet di test. In futuro configurabile.
     private val startUrl = "https://template.mondoqr.it/gestione?c=template"
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -73,8 +84,69 @@ class MainActivity : Activity() {
             }.start()
         }
 
-        /** Il web usa questo per capire che gira DENTRO l'app nativa (e quindi stampare via ponte). */
+        /** TEST senza stampante: rende la comanda (testo semplice) come immagine e la salva in Galleria. */
+        @JavascriptInterface
+        fun saveTestToGallery(text: String) {
+            Thread {
+                try {
+                    saveBitmapToGallery(renderTextBitmap(text))
+                    runOnUiThread { toast("Comanda di prova salvata in Galleria") }
+                } catch (e: Exception) {
+                    runOnUiThread { toast("Salvataggio fallito: ${e.message}") }
+                }
+            }.start()
+        }
+
+        /** Versione dell'app installata (per il confronto "aggiorna" lato web). */
+        @JavascriptInterface
+        fun appVersion(): String = try {
+            packageManager.getPackageInfo(packageName, 0).versionName ?: ""
+        } catch (e: Exception) { "" }
+
         @JavascriptInterface
         fun available(): Boolean = true
+    }
+
+    // ── Rendering comanda -> bitmap (per il test in Galleria) ──
+    private fun renderTextBitmap(text: String): Bitmap {
+        val width = 576 // 80mm @ 203dpi
+        val paint = Paint().apply {
+            color = Color.BLACK
+            textSize = 26f
+            typeface = Typeface.MONOSPACE
+            isAntiAlias = true
+        }
+        val lines = text.split("\n")
+        val lineHeight = paint.textSize * 1.35f
+        val pad = 20f
+        val height = (pad * 2 + lineHeight * lines.size).toInt().coerceAtLeast(120)
+        val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bmp)
+        canvas.drawColor(Color.WHITE)
+        var y = pad + paint.textSize
+        for (line in lines) {
+            canvas.drawText(line, pad, y, paint)
+            y += lineHeight
+        }
+        return bmp
+    }
+
+    private fun saveBitmapToGallery(bmp: Bitmap) {
+        val name = "comanda_prova_" + System.currentTimeMillis() + ".png"
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val values = ContentValues().apply {
+                put(MediaStore.Images.Media.DISPLAY_NAME, name)
+                put(MediaStore.Images.Media.MIME_TYPE, "image/png")
+                put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/ComandeMondoQR")
+            }
+            val uri = contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+                ?: throw RuntimeException("MediaStore null")
+            contentResolver.openOutputStream(uri)?.use { os -> bmp.compress(Bitmap.CompressFormat.PNG, 100, os) }
+        } else {
+            @Suppress("DEPRECATION")
+            val dir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), "ComandeMondoQR")
+            dir.mkdirs()
+            FileOutputStream(File(dir, name)).use { os -> bmp.compress(Bitmap.CompressFormat.PNG, 100, os) }
+        }
     }
 }
