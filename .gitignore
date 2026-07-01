@@ -9,3 +9,6 @@ captures/
 .kotlin/
 
 apk-out/
+
+keystore.p12
+*.jks

@@ -24,8 +24,17 @@ jobs:
         with:
           gradle-version: "8.7"
 
+      - name: Decode signing keystore
+        run: echo "$KS_B64" | base64 -d > app/keystore.p12
+        env:
+          KS_B64: ${{ secrets.SIGNING_KEYSTORE_B64 }}
+
       - name: Build debug APK
         run: gradle assembleDebug --no-daemon --stacktrace
+        env:
+          SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
+          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
