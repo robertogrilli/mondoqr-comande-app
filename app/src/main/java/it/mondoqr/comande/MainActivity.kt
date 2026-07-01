@@ -3,6 +3,8 @@ package it.mondoqr.comande
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.ContentValues
+import android.content.Intent
+import android.net.Uri
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
@@ -52,6 +54,10 @@ class MainActivity : Activity() {
         }
         web.webViewClient = WebViewClient()
         web.webChromeClient = WebChromeClient()
+        // Download (es. link "Aggiorna l'app" -> APK): apri nel browser di sistema.
+        web.setDownloadListener { url, _, _, _, _ ->
+            try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) } catch (_: Exception) { }
+        }
         web.addJavascriptInterface(PrintBridge(), "AndroidPrint")
         setContentView(web)
         web.loadUrl(startUrl)
