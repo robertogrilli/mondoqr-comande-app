@@ -26,7 +26,10 @@ import android.os.Environment
 import android.os.Handler
 import android.os.Looper
 import android.provider.MediaStore
+import android.os.PowerManager
+import android.provider.Settings
 import android.text.InputType
+import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.webkit.ConsoleMessage
@@ -66,6 +69,17 @@ import java.io.FileOutputStream
  *     window.AndroidPrint.appVersion()                            -> versione app (per il tasto "aggiorna")
  *     window.AndroidPrint.changeVenue()                           -> dialog per cambiare locale (slug)
  */
+/**
+ * WebView che si dichiara SEMPRE visibile al motore: Chromium strozza i timer JS
+ * delle pagine in background (dopo ~5 min → polling fermo → niente stampa).
+ * Questa è una postazione comande: deve pollare anche quando l'app non è davanti.
+ */
+private class KeepAliveWebView(ctx: Context) : WebView(ctx) {
+    override fun onWindowVisibilityChanged(visibility: Int) {
+        super.onWindowVisibilityChanged(View.VISIBLE)
+    }
+}
+
 class MainActivity : Activity() {
 
     private var web: WebView? = null
@@ -114,6 +128,15 @@ class MainActivity : Activity() {
             registerReceiver(usbReceiver, IntentFilter(actionUsbPermission))
         }
 
+        // Esenzione dall'ottimizzazione batteria (dialog di sistema, una volta sola):
+        // senza, Android/OEM possono congelare il processo dopo minuti di background.
+        try {
+            val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+            if (!pm.isIgnoringBatteryOptimizations(packageName)) {
+                startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName")))
+            }
+        } catch (_: Exception) { }
+
         // Servizio in primo piano: tiene viva la stampa con app in background / schermo spento.
         val svc = Intent(this, PrintKeepAliveService::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(svc) else startService(svc)
@@ -134,7 +157,11 @@ class MainActivity : Activity() {
 
     @SuppressLint("SetJavaScriptEnabled")
     private fun buildWebView(): WebView {
-        val w = WebView(this)
+        val w: WebView = KeepAliveWebView(this)
+        // renderer mai deprioritizzato quando l'app è in background (il default lo "congela")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            try { w.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, false) } catch (_: Exception) { }
+        }
         w.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
