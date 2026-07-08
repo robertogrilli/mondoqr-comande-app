@@ -126,6 +126,9 @@ class MainActivity : Activity() {
         val w = buildWebView()
         web = w
         setContentView(w)
+        // cache web azzerata a ogni avvio: l'admin è SEMPRE l'ultima versione deployata
+        // (le WebView vecchie delle casse ignorano il must-revalidate e restavano stantie)
+        try { w.clearCache(true) } catch (_: Exception) { }
         if (prefs.contains("slug")) w.loadUrl(startUrl()) else askSlug(first = true)
     }
 
