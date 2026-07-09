@@ -11,8 +11,8 @@ android {
         applicationId = "it.mondoqr.comande"
         minSdk = 24
         targetSdk = 34
-        versionCode = 9
-        versionName = "0.9"
+        versionCode = 10
+        versionName = "0.10"
     }
 
     signingConfigs {

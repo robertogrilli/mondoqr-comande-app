@@ -372,6 +372,15 @@ $errs
     override fun onDestroy() {
         try { unregisterReceiver(usbReceiver) } catch (_: Exception) { }
         handler.removeCallbacksAndMessages(null)
+        // La WebView va uccisa ESPLICITAMENTE: è una KeepAliveWebView (si dichiara sempre visibile)
+        // e il servizio tiene vivo il processo → senza destroy() la pagina resta uno zombie che
+        // continua a pollare e stampare. Ogni riapertura ne aggiungeva uno = comande in 2/3/4 copie.
+        web?.let { w ->
+            try { (w.parent as? ViewGroup)?.removeView(w) } catch (_: Exception) { }
+            try { w.loadUrl("about:blank") } catch (_: Exception) { }
+            try { w.destroy() } catch (_: Exception) { }
+        }
+        web = null
         super.onDestroy()
     }
 
